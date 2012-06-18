@@ -1,0 +1,734 @@
+%\VignetteIndexEntry{Main vignette:Posterior association network and enriched functional gene modules inferred from rich phenotypes of gene perturbations}
+%\VignetteKeywords{Posterior association network, gene modules, rich phenotypes, gene perturbation}
+%\VignettePackage{PAN}
+\documentclass[12pt]{article}
+\usepackage{amsmath}
+
+\usepackage[pdftex]{graphicx} % more modern
+%\usepackage{epsfig} % less modern
+%\usepackage{subfigure} 
+%\renewcommand{\thesubfigure}{(\Alph{subfigure})}
+\renewcommand{\thefigure}{\arabic{figure}}
+\usepackage{layouts}
+\usepackage{bm}
+
+%\usepackage{subfig}
+\usepackage{color}
+\definecolor{darkblue}{rgb}{0.0,0.0,0.75}
+\usepackage[%
+baseurl={http://www.bioconductor.org},%
+pdftitle={Mulder2012},%
+pdfauthor={Xin Wang},%
+pdfsubject={Mulder2012-Vignette},%
+pdfkeywords={Bioconductor},%
+pagebackref,bookmarks,colorlinks,linkcolor=darkblue,citecolor=darkblue,%
+pagecolor=darkblue,raiselinks,pdftex]{hyperref}
+
+\SweaveOpts{keep.source=TRUE,eps=FALSE,include=FALSE,width=4,height=4.5} 
+\newcommand{\Robject}[1]{\texttt{#1}}
+\newcommand{\Rpackage}[1]{\textit{#1}}
+\newcommand{\Rfunction}[1]{\textit{#1}}
+\newcommand{\Rclass}[1]{\textit{#1}}
+\newcommand{\pan}{\emph{\sffamily PAN} }
+\newcommand{\pans}{\emph{\sffamily PANs} }
+%\newcommand{\Mulder2011}{\emph{\sffamily Mulder2011} }
+\bibliographystyle{unsrt}
+
+\title{Vignette for \emph{\sffamily Mulder2012}: Diverse epigenetic strategies interact to control epidermal differentiation.}
+\author{Xin Wang, Mauro A. Castro, \\ Klaas W. Mulder and Florian Markowetz}
+
+\begin{document}
+\maketitle
+\tableofcontents
+
+<<Ropts, echo=FALSE, results=hide>>=
+options(width=70)
+@ 
+
+\newpage
+
+\section{Introduction}
+The vignette helps the user to reproduce main results and figures of two applications of \pans (Posterior Association Networks) in \cite{Wang2012}. 
+In the first application, we predict a network of functional interactions between chromatin factors regulating epidermal stem cells. 
+In the second application, we identify a gene module including many confirmed and highly promising therapeutic targets in Ewing's sarcoma.
+%From RNA interference screens on 332 chromotin factors, we will introduce step by step how to perform beta-mixture modelling, infer the gene association network, search enriched gene modules, etc.
+Please refer to bioconductor package \Rpackage{PANR} for detailed introduction about the methods, on which this package is dependent.
+Please also refer to Mulder et al. \cite{Mulder2012} and Arora et al. \cite{Arora2010} for more details about the biological background, experimental design and data processing of the first and second applications, respectively.
+
+\section{Package installation}
+Please run all analyses in this vignette under version $2.14$ of R.
+Prior to installation of package \Rpackage{Mulder2012}, R packages \Rpackage{HTSanalyzeR}, \Rpackage{org.Hs.eg.db}, \Rpackage{KEGG.db} (for enrichment analyses), \Rpackage{pvclust} (for hierarchical clustering with bootstrap resampling), \Rpackage{RedeR} (for network visualization)  and \Rpackage{PANR} (the method package for inferring a posterior association network) should be installed.
+These packages can be installed directly from bioconductor:
+
+<<install, eval=FALSE>>=
+source("http://www.bioconductor.org/biocLite.R")
+biocLite(c("PANR", "RedeR", "pvclust", "HTSanalyzeR", 
+"org.Hs.eg.db", "KEGG.db"))
+@ 
+
+The `snow' package is recommended to be installed for module searching by the \Rpackage{PANR} package more efficiently.
+
+\section{Application I--Step-by-step analysis}
+Mulder K. et al. studied the functions of known and predicted chromatin factors in self-renewal and differentiation of human epidermal stem cells \cite{Mulder2012}.
+To predict interactions between these chromatin factors, we propose posterior association networks (PANs) encoding gene functions on vertices and their functional associations on edges. 
+Here we introduce step by step the computational workflow to perform mixture modelling, infer the functional network, search for enriched gene modules, etc. starting from RNA interference screening data under multiple conditions.
+
+\subsection{Data preprocessing}\label{sec-pre}
+In total, RNAi-based gene silencing was performed on 332 chromatin factors under five different conditions: vehicle, AG1478, BMP2/7, AG1478\_BMP2/7 and serum stimulation.
+To quantify each gene's function in epidermal self-renewal, we measured the endogenous levels of transglutaminase I (TG1) protein, which is the key enzyme that mediates the assembly of the epidermal cornified envelope.
+First, we load the raw screening data:
+<<setup, results=hide>>=
+library(Mulder2012)
+library(HTSanalyzeR)
+library(PANR)
+@
+<<loadRawScreens>>=
+data(Mulder2012.rawScreenData, package="Mulder2012")
+dim(rawScreenData)
+colnames(rawScreenData)
+@
+To correct for plate-to-plate variability, the raw screening measurement $x_{ki}^{TG1}$ for $k$-th well in plate $i$ was normalized to DRAQ5 signal $x_{ki}^{DRAQ5}$, which was used as control, within the plate:
+\begin{equation}
+x^{'}_{ki}=\frac{x_{ki}^{TG1}-\overline{x}_{i}^{\ siTG1}}{x_{ki}^{DRAQ5}} \ \ ,
+\end{equation}
+where $\overline{x}_{i}^{\ siTG1}$ denotes the mean of control signals in plate $i$.
+Z-scores were subsequently computed from the normalized data:
+\begin{equation}
+z_{ki}=\frac{x^{'}_{ki}-\mu_{i}}{\delta_i} \,
+\end{equation} 
+where $\mu_i$ and $\delta_i$ are the mean and standard deviation of all measurements within the $i$th plate.
+
+This procedure is realised by function \Rfunction{Mulder2012.RNAiPre}:
+<<RNAiPreprocessing, results=hide>>=
+data(Mulder2012.rawScreenAnnotation, package="Mulder2012")
+Mulder2012<-Mulder2012.RNAiPre(rawScreenData, rawScreenAnnotation)
+@
+
+After the above preprocessing steps, we obtained a $332$ (genes) $\times$ 15 (3 replicates $\times$ 5 conditions) matrix of z-scores. 
+<<showMulder2012>>=
+dim(Mulder2012)
+colnames(Mulder2012)
+@
+%\subsection{Hierarchical clustering}
+%We next perform unsupervised hierarchical clustering using z-scores derived from screening data to obtain a landscape of gene function patterns.
+%The functional distances between genes for the clustering is based on the second-order uncentered correlation coefficient, which was described as a function that considers both magnitude and direction \cite{eisen1998cluster} and has been proved to be a highly desirable metric for exploring gene expression patterns \cite{eisen1998cluster, dadgostar2002cooperation, de2002comparison}.
+%The clustering results identify clusters consisting of genes and/or complexes that are known to be critical for epidermal stem cell fate such as \textit{BRD4}, \textit{CHD4}, \textit{EZH2}, \textit{BPTF}, the NURF, MORF and LSD1 complexes (more details in \cite{Mulder2012}).
+
+%The following code can be used to reproduce the hierarchical clustering figure (Figure \ref{fig:heatmap}):
+%<<heatmap, eval=FALSE>>=
+%pdf(file="heatmap.pdf", width=20, height=20)
+%RNAiClusteringHeatmap(pheno=Mulder2012)
+%dev.off()
+%@ 
+
+%\begin{figure}[tp]
+%\begin{center}
+%\includegraphics{heatmap}
+%\caption{\label{fig:heatmap}%
+%\textbf{Hierarchical clustering on RNAi screens for the 332 chromatin factors under multiple conditions.}
+%This figure illustrates average-linkage hierarchical clustering on the z-score matrix derived from the screening data across five conditions.
+%The lower left and upper right panels include dendrograms showing the clustering results and heatmaps of averaged perturbation effects under each of the five conditions. 
+%The lower right panel demonstrates a heatmap of cosine similarities between perturbation effects across all conditions.
+%The upper left panels are color legends for the heatmaps of cosine similarities and perturbation effects, respectively.
+%}
+%\end{center}
+%\end{figure}
+
+\subsection{Beta-mixture modelling}\label{sec-bm}
+\paragraph{Modelling lack of association}
+From the z-score matrix, we compute association scores between genes using uncentered correlation coefficients (also known as \textit{cosine similarities}). 
+The proposed Beta-mixture model is applied to quantify the significances of these associations. 
+We first permuted the z-score matrix for 100 times, for each of which we compute cosine similarities and fit a null distribution to the density by maximum likelihood estimation using the function \Rfunction{fitdistr} in the R package \textit{MASS} (Figure \ref{fig:NULLfitting}) \cite{MASS}.
+The median values of the 100 fitted parameters were selected for modelling the ($\times$) component representing lack of association of the mixture distribution.
+
+The fitting is done by the following codes:
+<<NULLfitting1, eval=FALSE>>=
+bm_Mulder2012<-new("BetaMixture", pheno=Mulder2012, 
+metric="cosine", order=1, model="global")
+bm_Mulder2012<-fitNULL(bm_Mulder2012, nPerm=100, 
+thetaNULL=c(alphaNULL=4, betaNULL=4), sumMethod="median", 
+permMethod="keepRep", verbose=TRUE)
+@
+
+To inspect the fitting performance, we can compare the density plots of the permuted screening data and fitted beta distribution:
+<<NULLfitting2, echo=FALSE>>=
+data(bm_Mulder2012)
+@
+<<NULLfitting3, fig=TRUE, width=8, height=8, results=hide>>=
+view(bm_Mulder2012, what="fitNULL")
+@ 
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics{Mulder2012-Vignette-NULLfitting3}
+\caption{\label{fig:NULLfitting}%
+{\bf Fit a beta distribution to association densities derived from permutations.} The screening data matrix is permuated for 100 times, and for each permuted data association densities were computed and a beta distribution was fitted. Each fitting result is plotted as a gray curve. The median scores of the two shape parameters estimated from permutations were selected to fix the $\times$ component (blue dashed curve).}
+\end{center}
+\end{figure}
+
+\paragraph{Fitting a beta-mixture model to the real RNAi screens}
+Having fixed the parameters for the component representing lack of associations, we do MLE to estimate the other parameters of the mixture model using EM algorithm.
+This step is conducted by the function \Rfunction{fitBM}:
+<<BMfitting1, eval=FALSE>>=
+bm_Mulder2012<-fitBM(bm_Mulder2012, para=list(zInit=NULL, 
+thetaInit=c(alphaNeg=2, betaNeg=4, 
+alphaNULL=bm_Mulder2012@result$fitNULL$thetaNULL[["alphaNULL"]], 
+betaNULL=bm_Mulder2012@result$fitNULL$thetaNULL[["betaNULL"]], 
+alphaPos=4, betaPos=2), gamma=NULL), 
+ctrl=list(fitNULL=FALSE, tol=1e-3), verbose=TRUE)
+@
+
+Similarly, we can inspect the mixture modelling results (shown in Figure \ref{fig:BMfitting}): 
+<<BMfitting, fig=TRUE, width=8, height=8, results=hide>>=
+view(bm_Mulder2012, what="fitBM")
+@ 
+
+Comparing the original histogram of cosine similarities, the fitted three beta distributions and the mixture of them, we found that the density of cosine similarities is successfully partitioned to three components capturing the population of noise (lack of association) and signal (positive or negative association).
+The posterior probabilies for each association belonging to different populations in the mixture model were computed subsequently for inference of the functional network.
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics{Mulder2012-Vignette-BMfitting}
+\caption{\label{fig:BMfitting}%
+{\bf Fit a beta-mixture model to association scores computed from the real screening data. } The fitting is conducted based on the EM algorithm with the shape parameters of the $\times$ component fixed by fitting to permuted screening data. The histogram and the dashed curves show the real distribution of transformed association scores and the fitting result, respectively. Fitted densities for positive, negative and nonexistent associations are illustrated by red, blue and green dashed curves, respectively.}
+\end{center}
+\end{figure}
+
+\subsection{Enrichment analyses}\label{sec-enrich}
+We hypothesize that genes interacting at the protein level may tend to have higher functional interaction.
+To test the hypothesis in this application, we conducted GSEA (Gene Set Enrichment Analysis) for protein-protein interactions (using PINdb \cite{PINdb2004}) in the posterior probabilities of associations following the three different components of the beta-mixture model.
+Not surprisingly, we observe highly significant enrichment of PPIs in the + and - components (\textit{p}-values are $0.0067$ and $0.0004$, respectively) but not in the $\times$ component (\textit{p}-value=$1.0000$) (Figure \ref{fig:enrich}).
+Thus, protein-protein interactions can be potentially incorporated as \textit{a priori} belief to achieve a better performance.
+
+To run the enrichment analyses:
+
+<<PPIrun, eval=FALSE>>=
+PPI<-Mulder2012.PPIPre()
+Mulder2012.PPIenrich(pheno=Mulder2012, PPI=PPI$PPI, 
+bm=bm_Mulder2012)
+@
+%%$
+The enrichment results can be view by:
+<<modules, eval=FALSE>>=
+labels<-c("A", "B", "C")
+names(labels)<-c("neg", "none", "pos")
+for(i in c("neg", "none", "pos")) {
+pdf(file=file.path("rslt", paste("fig5", labels[i], ".pdf",sep="")), 
+width=8, height=6)
+GSEARandomWalkFig(Mulder2012, PPI, bm_Mulder2012, i)
+graphics.off()
+}
+@ 
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics[width=0.8\textwidth]{Mulder2012_enrich}
+\caption{\label{fig:enrich}%
+\textbf{Enrichment of protein-protein interactions in posterior probabilities.} 
+(A), (B) and (C) correspond to the enrichment of protein-protein interactions (PPIs) in the posterior probabilities for associations belonging to the +, - and $\times$ component, respectively.
+In each one of the three figures, the upper panel shows the ranked phenotypes by a pink curve and the positions of PPIs in the ranked phenotypes, while the lower panel shows the running sum scores of GSEA (Gene Set Enrichment Analysis) random walks \cite{subramanian2005gene}.
+}
+\end{center}
+\end{figure}
+
+\subsection{Incorporating protein-protein interactions}\label{sec-bm_ext}
+Here we take the advantage of prior knowledge such as protein-protein interactions to better predict functional connections using the extended model.
+Similarly, we first fit a null beta distribution to each of 100 permuted data sets, and used the median values of the fitted parameters to fix the $\times$ component in the mixture model.
+According to protein-protein interactions obtained from the PINdb database, we stratified the whole set of gene pairs to PPI group and non-PPI group.
+During the fitting to the extended model using the EM algorithm, different prior probabilities (mixture coefficients) for the three mixture components were used for these two groups.
+<<bm_ext, eval=FALSE>>=
+bm_ext<-new("BetaMixture", pheno=Mulder2012, 
+metric="cosine", order=1, model="stratified")
+bm_ext<-fitNULL(bm_ext, nPerm=100, 
+thetaNULL=c(alphaNULL=4, betaNULL=4), 
+sumMethod="median", permMethod="keepRep", verbose=TRUE)
+bm_ext<-fitBM(bm_ext, para=list(zInit=NULL, 
+thetaInit=c(alphaNeg=2, betaNeg=4, 
+alphaNULL=bm@result$fitNULL$thetaNULL[["alphaNULL"]], 
+betaNULL=bm@result$fitNULL$thetaNULL[["betaNULL"]], 
+alphaPos=4, betaPos=2), gamma=NULL), 
+ctrl=list(fitNULL=FALSE, tol=1e-3), verbose=TRUE)
+@
+
+As expected, the fitted mixture coefficients of the $+$ and $-$ components for the PPI group (30.4\% and 30.9\%) are significantly higher than the non-PPI group (18.2\% and 17.9\%) (Figure \ref{fig:bmextfitting}). 
+The fitting results suggest that gene pairs in the PPI group are much more likely to be positively or negatively associated.
+<<loadbm_ext, echo=FALSE>>=
+data(bm_ext_Mulder2012)
+bm_ext<-bm_ext_Mulder2012
+@
+<<viewbm_ext,fig=TRUE, width=9, height=4.5, results=hide>>=
+view(bm_ext, "fitBM")
+@
+\begin{figure}[tp]
+\begin{center}
+\includegraphics[width=\textwidth]{Mulder2012-Vignette-viewbm_ext}
+\caption{\label{fig:bmextfitting}%
+\textbf{Fitting results of the extended beta-mixture model.} 
+The whole set of gene pairs are stratified to PPI(protein-protein interaction) group and non-PPI group.
+The extended beta-mixture model is fitted to functional associations, setting different prior probabilities (mixture coefficients) to these two groups.
+The fitting results for the PPI group is illustrated in (A), and the non-PPI group in (B).
+The histogram and the dashed curves show the real distribution of transformed association scores and
+the fitting result, respectively. Fitted distributions for positive, negative and lack of association
+are illustrated by red, blue and green dashed curves, respectively.
+The fitting results suggest that gene pairs in the PPI group have higher probability to be functionally connected than the non-PPI group.
+}
+\end{center}
+\end{figure}
+
+\subsection{Inferring a posterior association network}\label{sec-pan}
+To infer a posterior association network, we compute signal-to-noise ratios (SNR), which are posterior odds of gene pairs in favor of signal (association) to noise (lack of association).
+Setting the cutoff score for SNR at 10, we filtered out non-significant gene associations and obtain a very sparse functional network (Figure \ref{fig:pan}).
+This procedure is accomplished by the following codes:
+<<inferFullPAN, results=hide>>=
+pan_ext<-new("PAN", bm1=bm_ext)
+pan_ext<-infer(pan_ext, para=
+list(type="SNR", log=TRUE, sign=TRUE, 
+cutoff=log(10)), filter=FALSE, verbose=TRUE)
+@ 
+
+\pan provides a function \Rfunction{buildPAN} to build an \Rclass{igraph} object for visualization:
+<<buildPAN, results=hide>>=
+pan_ext<-buildPAN(pan_ext, engine="RedeR", 
+para=list(nodeSumCols=1:3, nodeSumMethod="average", 
+hideNeg=TRUE))
+@ 
+
+To view the predicted network in \Rpackage{RedeR}, we can use the function \Rfunction{viewPAN}:
+<<pan, eval=FALSE>>=
+library(RedeR)
+viewPAN(pan_ext, what="graph")
+@ 
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics[width=0.95\textwidth]{Mulder2012_PAN}
+\caption{\label{fig:pan}%
+\textbf{Predicted association network of functional interactions. }
+This figure presents the predicted significant possitive functional interactions between 158 chromatin factors (SNR$>$10).
+Nodes with purple and orange colors represent positive and negative perturbation effects, respectively.
+Node colors are scaled according to their averaged perturbation effects under the vehicle condition.
+Node sizes are scaled according to their degrees.
+Edge widths are in proportion to log signal-to-noise ratios.
+Edges are colored in green representing positive associations between genes.  
+}
+\end{center}
+\end{figure}
+
+As shown in Figure \ref{fig:pan}, the network is naturally splitted to two clusters consisting of genes with positive and negative perturbation effects, respectively.
+
+\subsection{Searching for enriched functional modules}\label{sec-module}
+%A gene association network reveals the types and strengths of functional interactions between gene pairs.
+We next conduct second-order hierarchical clustering to search for enriched functional modules.
+To assess the uncertainty of the clustering analysis, we perform multiscale bootstrap resampling (more details in the R package \textit{pvclust} \cite{suzuki2006pvclust}).  
+
+To make it more efficient, we recommend to use the `snow' package for parallel computing:
+<<pan, eval=FALSE>>=
+library(snow)
+##initiate a cluster
+options(cluster=makeCluster(4, "SOCK"))
+@
+
+Please note that to enable second-order clustering in package \Rpackage{pvclust}, we have to modify function \Rfunction{dist.pvclust} and \Rfunction{parPvclust} using the following code:
+<<hackPvclust, eval=FALSE>>=
+ns<-getNamespace("pvclust")
+en<-as.environment("package:pvclust")
+assignInNamespace("dist.pvclust", dist.pvclust4PAN, 
+ns="pvclust", envir=ns)
+dist.pvclust<-getFromNamespace("dist.pvclust", 
+ns=getNamespace("pvclust"))
+unlockBinding("parPvclust", ns)
+assignInNamespace("parPvclust", parPvclust4PAN, 
+ns="pvclust", envir=ns)
+lockBinding("parPvclust", ns)
+parPvclust<-getFromNamespace("parPvclust", ns)
+if(is(getOption("cluster"), "cluster") && 
+"package:snow" %in% search()) {		
+clusterCall(getOption("cluster"), assignInNamespace, 
+x="dist.pvclust", value=dist.pvclust4PAN, ns=ns)
+clusterCall(getOption("cluster"), unlockBinding, 
+sym="parPvclust", env=ns)
+clusterCall(getOption("cluster"), assignInNamespace, 
+x="parPvclust", value=parPvclust4PAN, ns=ns)
+clusterCall(getOption("cluster"), lockBinding, 
+sym="parPvclust", env=ns)
+}
+@
+
+<<pvclust, eval=FALSE>>=
+pan_ext<-pvclustModule(pan=pan_ext, nboot=10000, 
+metric="cosine2", hclustMethod="average", filter=FALSE)
+##stop the cluster
+stopCluster(getOption("cluster"))
+options(cluster=NULL)
+@
+
+In the code above, please ensure that the name of the cluster is `cluster', as it will be recognized inside the `PANR' package.
+
+With 10,000 times' resampling we obtained 39 significant clusters (\textit{p}-value $< 0.05$) including more than three genes. 
+Mapping these gene clusters to the inferred functional network, we identified 13 tightly connected modules (density $> 0.5$).
+To view these modules in a compact way (Figure \ref{fig:sigmod}), the user can use the following function:
+<<pan_visualize, eval=FALSE>>=
+rdp <- RedPort('MyPort')
+calld(rdp)
+Mulder2012.module.visualize(rdp, pan_ext, mod.pval.cutoff=0.05, 
+mod.size.cutoff=4, avg.degree.cutoff=0.5)
+@ 
+Among these modules the one cosisting of \textit{ING5}, \textit{UHRF1}, \textit{EZH2}, \textit{SMARCA5}, \textit{BPTF}, \textit{SMARCC2} and \textit{PRMT1} is of particular interest, as it indicates a functional connection between \textit{BPTF}, \textit{EZH2}, NURF and MORF complexes, which have been independently implicated in epidermal self-renewal.
+Further combinatorial knock-down experiments validated many genetic interactions between \textit{ING5}, \textit{BPTF}, \textit{SMARCA5}, \textit{EZH2} and \textit{UHRF1}.
+These biological validations demonstrate the power of the proposed integrative computational approach for predicting association networks of functional gene interactions and searching for enriched gene modules.
+
+\begin{figure}[tp]
+\begin{center}
+\noindent\makebox[\textwidth]{%
+\includegraphics[width=0.8\textwidth]{Mulder2012_sigMod}}
+\caption{\label{fig:sigmod}
+\textbf{Top significant modules predicted by \pans.}
+Nodes with purple colors represent positive perturbation effects.
+Node colors are scaled according to their averaged perturbation effects under the vehicle condition.
+Node sizes are scaled in proportion to their degrees.
+Edge widths are in proportion to log signal-to-noise ratios.
+Edges colored in green and grey represent positive interactions inside modules and summed interactions between modules, respectively.
+This figure illustrates top significant modules and their dense functional interactions.
+Genes colored in red were selected for further experimental investigation.
+}
+\end{center}
+\end{figure}
+
+\section{Application I--pipeline functions}
+We provide two pipeline functions for reproducing all the data and figures.
+Please note that to enable second-order hierarchical clustering in \Rpackage{pvclust}, function \Rfunction{dist.pvclust} and \Rfunction{parPvclust} must be modified using the code described in section \ref{sec-module}.
+\subsection{Pipeline function to reproduce data}
+All data can be recomputed by a pipeline function \Rfunction{Mulder2011.pipeline}:
+
+<<analysesPipeline, eval=FALSE>>=
+Mulder2012.pipeline(
+par4BM=list(model="global", metric="cosine", nPerm=20),
+par4PAN=list(type="SNR", log=TRUE, sign=TRUE, 
+cutoff=log(10), filter=FALSE),
+par4ModuleSearch=list(nboot=10000, metric="cosine2",
+hclustMethod="average", filter=FALSE)
+)
+@
+
+This pipeline includes the following analysis procedures:
+\begin{itemize}
+\item Data pre-processing including computing z-scores from the raw RNAi screening data and extracting protein-protein interaction information from the PINdb database \cite{PINdb2004} (details in section \ref{sec-pre}).
+\item Fitting a beta distribution to association densities computed from permuted screening data. The fitted shape parameters will be used to model the component representing lack of association in the beta-mixture model (details in section \ref{sec-bm}).
+\item Fitting a beta-mixture model to association scores computed from the real screening data (details in section \ref{sec-bm}).
+\item Enrichment analyses of posterior probabilities of gene pairs belonging to a positive, negative or lack of association in  protein-protein interactions in the nucleus (details in section \ref{sec-enrich}).
+\item Fitting a stratified beta-mixture model to incorporate protein-protein interactions (details in section \ref{sec-bm_ext}).
+\item Inferring an association network of functional interactions between chromatin factors based on the beta-mixture modelling results (details in section \ref{sec-pan}).
+\item Searching for significant gene modules based on hierarchical clustering with multiscale resampling (details in section \ref{sec-module}).
+\end{itemize}
+
+\subsection{Pipeline function to reproduce figures}
+All figures can be regenerated, some of which need manual improvement, using the following function:
+<<figures, eval=FALSE>>=
+Mulder2012.fig(what="ALL")
+@
+in which \Robject{what} specifies which figure to generate: 
+\begin{itemize}
+\item `NULLfitting' (Fig. 4A in \cite{Wang2012}): density curves of transformed cosine similarities computed from permuted screening data and fitted beta distribution. 
+This figure can be used to assess the fitting of the $\times$ component  in the beta-mixture model.
+\item `BMfitting' (Fig. 4B in \cite{Wang2012}): a histogram of transformed cosine similarities computed from the real screening data, fitted beta-mixture distribution as well as mixture coefficient weighted beta distributions fitted for the three components. 
+This figure is also used for assessing the fitting of the beta-mixture model to screening data.
+\item `PPIenrich' (Fig. 5 in \cite{Wang2012}): figures of the enrichment analyses results. Each figure shows the positions of the protein-protein interactions in the ranked phenotypes (posterior probabilities) and the running enrichment scores.
+\item `sigMod' (Fig. 7 in \cite{Wang2012}): a figure of top significant gene modules searched by multiscale bootstrap resampling analyses using \Rpackage{pvclust}. 
+\item `selMod' (Fig. 8A in \cite{Wang2012}): a figure of the module selected for further validation using combinatorial knock-down experiments.
+
+\end{itemize}
+
+\section{Application II--Step-by-step analysis}
+In this application, we use RNAi phenotyping screens across multiple cell lines to infer functional modules of kinases that are critical for growth and proliferation of Ewing's sarcoma.
+We demonstrate that our model can make efficient use of single gene perturbation data to predict robust functional interactions.  
+The data used in this case study is a matrix ($572 \times 8$) of Z-scores from high throughput RNAi screens run in duplicates targeting 572 human kinases in four Ewing's sarcoma cell lines: TC-32, TC-71, SK-ES-1 and RD-ES \cite{Arora2010}.
+In these phenotyping screens, viability was assessed using a luminescence-based cell to quantify each gene's function in cancer cell growth and proliferation.
+The screening data was corrected for plate row variations and normalized using Z-score method as described in \cite{Arora2010}.
+Compared to other RNAi screens in normal human fibroblast cell line, the four Ewing's sarcoma cell lines exhibited significant similarities, suggesting robust and consistent functional interactions among perturbed genes across cell lines \cite{Arora2010}.
+
+We first load the screening data:
+<<arora_loadScreens>>=
+data(Arora2010, package="Mulder2012")
+dim(Arora2010)
+colnames(Arora2010)
+@
+
+\subsection{Beta-mixture modelling}\label{arora-sec-bm}
+To predict the functional interactions between genes, a beta-mixture model was applied to quantify the significance of their associations, which are measured by cosine similarities computed from the Z-score matrix. 
+We first permuted the Z-score matrix 20 times, computing cosine similarities and fitting a null distribution by maximum likelihood estimation (Figure \ref{fig:arora_NULLfitting}).
+The median values of the 20 fitted parameters were selected to fix the $\times$ component representing lack of association in the mixture model.
+<<arora_NULLfitting1, eval=FALSE>>=
+bm_Arora2010<-new("BetaMixture", pheno=Arora2010, 
+metric="cosine", order=1, model="global")
+bm_Arora2010<-fitNULL(bm_Arora2010, nPerm=20, 
+thetaNULL=c(alphaNULL=4, betaNULL=4), sumMethod="median", 
+permMethod="keepRep", verbose=TRUE)
+@
+<<arora_NULLfitting2, echo=FALSE>>=
+data(bm_Arora2010)
+@
+<<arora_NULLfitting3, fig=TRUE, width=8, height=8, results=hide>>=
+view(bm_Arora2010, what="fitNULL")
+@
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics{Mulder2012-Vignette-arora_NULLfitting3}
+\caption{\label{fig:arora_NULLfitting}%
+{\bf Fit a beta distribution to association densities derived from permutations.} The screening data matrix is permuated for 20 times, and for each permuted data association densities were computed and a beta distribution was fitted. Each fitting result is plotted as a gray curve. The median scores of the two shape parameters estimated from permutations were selected to fix the $\times$ component (blue dashed curve).}
+\end{center}
+\end{figure}
+
+Having fixed the parameters for the $\times$ component, we performed MAP inference with an uninformative prior (uniform Dirichlet priors) to estimate the other parameters of the global mixture model using the EM algorithm. 
+<<arora_BMfitting1, eval=FALSE>>=
+bm_Arora2010<-fitBM(bm_Arora2010, para=list(zInit=NULL, 
+thetaInit=c(alphaNeg=2, betaNeg=4, 
+alphaNULL=bm_Arora2010@result$fitNULL$thetaNULL[["alphaNULL"]], 
+betaNULL=bm_Arora2010@result$fitNULL$thetaNULL[["betaNULL"]], 
+alphaPos=4, betaPos=2), gamma=NULL), 
+ctrl=list(fitNULL=FALSE, tol=1e-3), verbose=TRUE)
+@
+
+Comparing the original histogram of cosine similarities, the fitted three beta distributions and the mixture of them (Figure \ref{fig:arora_BMfitting}), we found that the distribution of cosine similarities is successfully partitioned to three components capturing the population of signal (positive or negative association) and noise (lack of association).
+<<arora_BMfitting2, fig=TRUE, width=8, height=8, results=hide>>=
+view(bm_Arora2010, what="fitBM")
+@ 
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics{Mulder2012-Vignette-arora_BMfitting2}
+\caption{\label{fig:arora_BMfitting}%
+{\bf Fit a beta-mixture model to association densities derived from the real screening data. } The fitting is conducted based on the EM algorithm with the shape parameters of the $\times$ component fixed by fitting to permuted screening data. The histogram and the dashed curves show the real distribution of transformed association scores and the fitting result, respectively. Fitted densities for positive, negative and nonexistent associations are illustrated by red, blue and green dashed curves, respectively.}
+\end{center}
+\end{figure}
+
+The posterior probabilities for each association belonging to different populations in the mixture model were computed subsequently for inference of the functional network.
+
+\subsection{Inferring a posterior association network}\label{arora-sec-pan}
+Having fitted the global mixture model to data successfully, we inferred a network of functional interactions between kinases based on the proposed edge inference approach. 
+Setting the cutoff SNR score at 10, we filtered out non-significant edges and obtained a very sparse network.
+This procedure is accomplished by the following codes:
+<<arora_inferFullPAN, results=hide>>=
+pan_Arora2010<-new("PAN", bm1=bm_Arora2010)
+pan_Arora2010<-infer(pan_Arora2010, para=
+list(type="SNR", log=TRUE, sign=TRUE, 
+cutoff=log(10)), filter=FALSE, verbose=TRUE)
+@ 
+
+\pan provides a function \Rfunction{buildPAN} to build an \Rclass{igraph} object for visualization:
+<<arora_buildPAN, results=hide>>=
+pan_Arora2010<-buildPAN(pan_Arora2010, engine="RedeR", 
+para=list(nodeSumCols=1:2, nodeSumMethod="average", 
+hideNeg=TRUE))
+@ 
+
+To view the predicted network in \Rpackage{RedeR}, we can use the function \Rfunction{viewPAN}:
+<<arora_pan, eval=FALSE>>=
+viewPAN(pan_Arora2010, what="graph")
+@ 
+
+\begin{figure}[tp]
+\begin{center}
+\includegraphics[width=0.95\textwidth]{Arora2010_PAN}
+\caption{\label{fig:arora_pan}%
+\textbf{Predicted association network of functional interactions. }
+This figure presents the predicted significant possitive functional interactions between 158 chromatin factors (SNR$>$10).
+Nodes with purple and orange colors represent positive and negative perturbation effects, respectively.
+Node colors are scaled according to their averaged perturbation effects under the vehicle condition.
+Node sizes are scaled according to their degrees.
+Edge widths are in proportion to log signal-to-noise ratios.
+Edges are colored in green representing positive associations between genes.  
+}
+\end{center}
+\end{figure}
+
+As shown in Figure \ref{fig:arora_pan}, the network is naturally splitted to two clusters consisting of genes with positive and negative perturbation effects, respectively.
+
+\subsection{Searching for enriched functional modules}\label{arora-sec-module}
+Hierarchical clustering with multiscale bootstrap resampling was conducted subsequently using the R package \textit{pvclust} \cite{suzuki2006pvclust}. 
+With 10000 times' resampling, we obtained 65 significant (\textit{p}-value $< 0.05$) clusters with more than four genes.
+Of all these significant clusters, 30 clusters are enriched for functional interactions (module density $> 0.5$). 
+<<pan_arora, eval=FALSE>>=
+library(snow)
+##initiate a cluster
+options(cluster=makeCluster(4, "SOCK"))
+pan_Arora2010<-pvclustModule(pan_Arora2010, nboot=10000, 
+metric="consine2", hclustMethod="average", filter=TRUE, 
+verbose=TRUE, r=c(6:12/8))
+##stop the cluster
+stopCluster(getOption("cluster"))
+options(cluster=NULL)
+@
+These clusters are superimposed to predicted posterior association networks to build functional modules.
+To visualize these modules in \Rpackage{RedeR} (Figure \ref{fig:arora_sigmod}):
+<<pan_arora_viz, eval=FALSE>>=
+rdp <- RedPort('MyPort')
+calld(rdp)
+Arora2010.module.visualize(rdp, pan_Arora2010, mod.pval.cutoff=
+0.05, mod.size.cutoff=4, avg.degree.cutoff=0.5)
+@
+
+\begin{figure}[tp]
+\begin{center}
+\noindent\makebox[\textwidth]{%
+\includegraphics[width=0.8\textwidth]{Arora2010_sigMod}}
+\caption{\label{fig:arora_sigmod}
+\textbf{Top significant modules predicted by \pans in Ewing's sarcoma.}
+The significant modules predicted by \pan are presented in a nested structure.
+Each module is illustrated by a rounded rectangle including sub-modules and/or individual genes.
+The {\textit p}-value (on the top of each module) computed by \textit{pvclust} indicates the stability of genes being clustered together.
+\textit{PRCKA} (the gene colored in purple) is known to be a kinase target for human sarcomas, and an inhibitor PKC412 targeting \textit{PRCKA} has already been tested in the clinic.
+\textit{STK10} and \textit{TNK2} (colored in red) in the upper left module have been identified as potential therapeutic targets.
+Another eight genes (colored in yellow) in the upper left and right modules were also highly associated with apoptosis of Ewing's sarcoma. 
+}
+\end{center}
+\end{figure}
+
+\subsection{Pathway analysis}\label{arora-sec-pathway}
+Previous RNAi screening studies such as \cite{Arora2010} were dedicated to discovering single genes that are pivotal for inhibiting Ewing's sarcoma.
+In our predictions, genes in the module are densely connected with highly siginificant functional interactions, indicating possible genetic interactions may exist among them.
+If the hypothesis is true, these genes may be involved in the same biological processes.
+Focusing on genes in the second module, we further searched for kinase pathways in which they are enriched. 
+Hypergeometric tests were performed on all genes in this module to test their overrepresentation in KEGG pathways using R package \Rpackage{HTSanalyzeR} \cite{Wang2011}.
+In total, we identified 15 significant KEGG pathways (Benjamini-Hochberg adjusted \textit{p}-value $< 0.05$) with more than two observed hits (Figure \ref{fig:arora_pw}).
+
+<<pw_arora, eval=FALSE>>=
+pw.Arora2010<-Arora2010.hypergeo(pan_Arora2010, mod.pval.cutoff=0.05, 
+mod.size.cutoff=4, avg.degree.cutoff=0.5)
+pw.Arora2010<-pw.Arora2010[[1]]
+obs.exp<-as.numeric(pw.Arora2010[, 4])
+names(obs.exp)<-paste(as.character(pw.Arora2010[, 6]), "  (", 
+format(pw.Arora2010[, 5], scientific=TRUE, digits=3), ")", sep="")
+par(mar=c(4, 16, 1, 1), cex=0.8)
+barplot((obs.exp), horiz=TRUE, las=2, xlab="Observed/Expected Hits", 
+cex.axis=0.8)
+@
+<<pw_arora_plot, echo=FALSE, fig=TRUE, width=20, height=8, results=hide>>=
+data(Arora2010.pathway)
+pw.Arora2010<-pw.rslt[[1]]
+obs.exp<-as.numeric(pw.Arora2010[, 4])
+names(obs.exp)<-paste(as.character(pw.Arora2010[, 6]), "  (", 
+format(pw.Arora2010[, 5], scientific=TRUE, digits=3), ")", sep="")
+par(mar=c(4, 16, 1, 1), cex=0.8)
+barplot((obs.exp), horiz=TRUE, las=2, xlab="Observed/Expected Hits", 
+cex.axis=0.8)
+@
+
+\begin{figure}[tp]
+\begin{center}
+\noindent\makebox[\textwidth]{%
+\includegraphics[width=\textwidth]{Mulder2012-Vignette-pw_arora_plot}}
+\caption{\label{fig:arora_pw}
+\textbf{Significantly overrepresented KEGG pathways.}
+Hypergeometric tests were performed to evaluate overrepresentation of genes included in the upper right module in human KEGG pathways.
+Top significant pathways (\textit{p}-value $< 0.05$) are ranked by \textit{p}-value increasingly, and their corresponding ratios of the number of observed hits to expected hits are illustrated by a bar plot. 
+}
+\end{center}
+\end{figure}
+
+\section{Application II--pipeline functions}
+Similar to the first application, we provide two pipeline functions to reproduce all results and figures.
+Please note again that to enable second-order hierarchical clustering in \Rpackage{pvclust}, function \Rfunction{dist.pvclust} and \Rfunction{parPvclust} must be modified using the code described in section \ref{sec-module}.
+\subsection{Pipeline function to reproduce data}
+All data can be recomputed by a pipeline function \Rfunction{Arora2010.pipeline}:
+<<arora_analysesPipeline, eval=FALSE>>=
+Arora2010.pipeline(
+par4BM=list(model="global", metric="cosine", nPerm=20),
+par4PAN=list(type="SNR", log=TRUE, sign=TRUE, 
+cutoff=log(10), filter=FALSE),
+par4ModuleSearch=list(nboot=10000, metric="cosine2", 
+hclustMethod="average", filter=FALSE)
+)
+@
+
+This pipeline includes the following analysis procedures:
+\begin{itemize}
+\item Fitting a beta distribution to association scores computed from permuted screening data. 
+The fitted shape parameters will be used to model the $\times$ component in the beta-mixture model (details in section \ref{arora-sec-bm}).
+\item Fitting a beta-mixture model to association scores computed from the real screening data (details in section \ref{arora-sec-bm}).
+\item Inferring a posterior association network for Ewing's sarcoma based on the beta-mixture modelling results (details in section \ref{arora-sec-pan}).
+\item Searching for significant functional modules based on hierarchical clustering with multiscale resampling (details in section \ref{arora-sec-module}).
+\item Performing hypergeometric tests to evaluate overrepresentation of genes included in the module of interest in human KEGG pathways (details in section \ref{arora-sec-pathway}).
+\end{itemize}
+
+\subsection{Pipeline function to reproduce figures}
+Most figures can be regenerated using the following function:
+<<arora_figures, eval=FALSE>>=
+Arora.fig(what="ALL")
+@
+in which \Robject{what} specifies which figure to generate: 
+\begin{itemize}
+\item `NULLfitting' (Fig. 3A in \cite{Wang2012}): density curves of transformed cosine similarities computed from permuted screening data and fitted beta distribution. 
+This figure can be used to assess the fitting of the $\times$ component in the beta-mixture model.
+\item `BMfitting' (Fig. 3B in \cite{Wang2012}): a histogram of transformed cosine similarities computed from the real screening data, fitted beta-mixture distribution as well as mixture coefficient weighted beta distributions fitted for the three components. 
+This figure is also used for assessing the fitting of beta-mixture model to screening data.
+\item `sigMod' (Fig. 3C in \cite{Wang2012}): a figure of top significant gene modules identified by hierarchical clustering with multiscale bootstrap resampling using \Rpackage{pvclust}. 
+\item `pathway' (Fig. 3D in \cite{Wang2012}): a figure illustrating significantly overrepresented KEGG pathways.
+\end{itemize}
+
+\section{Session info}
+
+This document was produced using:
+
+<<sessionInfo, results=tex, print=TRUE>>=
+toLatex(sessionInfo())
+@ 
+\renewcommand{\refname}{\section{References}}
+\begin{thebibliography}{1}
+\bibitem{MASS}
+W. N. Venables and B. D. Ripley (2002).
+\newblock Modern Applied Statistics with S (Fourth edition).
+\newblock {\em Springer\/}, ISBN 0-387-95457-0.
+
+\bibitem{suzuki2006pvclust}
+Suzuki, R. and Shimodaira, H. (2006).
+\newblock Pvclust: an R package for assessing the uncertainty in hierarchical clustering.
+\newblock {\em Bioinformatics\/}, {\bf 22}(12), 1540.
+
+\bibitem{subramanian2005gene}
+Subramanian, A. and Tamayo, P. et al. (2005).
+\newblock Gene set enrichment analysis: a knowledge-based approach for interpreting genome-wide expression profiles.
+\newblock {\em PNAS\/}, {\bf 102}(43), 15545.
+
+\bibitem{Arora2010}
+Arora, S. and Gonzales, I.M. and Hagelstrom, R.T. and Beaudry, C. and Choudhary, A. and Sima, C. and Tibes, R. and Mousses, S. and Azorsa, D.O. and others (2010).
+\newblock RNAi phenotype profiling of kinases identifies potential therapeutic targets in Ewing's sarcoma.
+\newblock {\em Molecular Cancer\/}, {\bf 9}(1), 218.
+
+\bibitem{Mulder2012}
+Klaas W. Mulder, Xin Wang, Carles Escriu, Yoko Ito, Roland F. Schwarz, Jesse Gillis, Gabor Sirokmany, Giacomo Donati, Santiago Uribe-Lewis, Paul Pavlidis, Adele Murrell, Florian Markowetz and Fiona M. Watt (2012).
+\newblock Diverse epigenetic strategies interact to control epidermal differentiation.
+\newblock {\em doi:10.1038/ncb2520\/}.
+
+\bibitem{Wang2011}
+Wang, X. and Terfve, C. and Rose, J.C. and Markowetz, F. (2011).
+\newblock HTSanalyzeR: an R/Bioconductor package for integrated network analysis of high-throughput screens.
+\newblock {\em Bioinformatics\/}, {\bf 27}(6), 879--880.
+
+\bibitem{Wang2012}
+Wang, X. and Castro, M.A. and Mulder, K. and Markowetz, F. (2012).
+\newblock Posterior association networks and functional modules inferred from rich phenotypes of gene perturbations.
+\newblock {\em doi:10.1371/journal.pcbi.1002566\/}.
+
+\bibitem{PINdb2004}
+Luc PV and Tempst P (2004).
+\newblock PINdb: a database of nuclear protein complexes from human and yeast.
+\newblock {\em Bioinformatics\/}, {\bf 20}(9), 1413.
+
+\bibitem{eisen1998cluster}
+Eisen, M.B. and Spellman, P.T. and Brown, P.O. and Botstein, D. (1998).
+\newblock Cluster analysis and display of genome-wide expression patterns.
+\newblock {\em Proceedings of the National Academy of Sciences\/}, {\bf 95}(25), 14863.
+
+\bibitem{dadgostar2002cooperation}
+Dadgostar, H. and Zarnegar, B. and Hoffmann, A. and Qin, X.F. and Truong, U. and Rao, G. and Baltimore, D. and Cheng, G. (2002).
+\newblock Cooperation of multiple signaling pathways in CD40-regulated gene expression in B lymphocytes.
+\newblock {\em Proceedings of the National Academy of Sciences\/}, {\bf 99}(3), 1497.
+
+\bibitem{de2002comparison}
+de Hoon, M. and Imoto, S. and Miyano, S. (2002).
+\newblock A comparison of clustering techniques for gene expression data.
+in \newblock {\em Proc. of the 10th Intl Conf. on Intelligent Systems for Molecular Biology\/}.
+
+\end{thebibliography}
+\end{document}

@@ -1,0 +1,30 @@
+importFrom(igraph, subgraph)
+importFrom(HTSanalyzeR, annotationConvertor, KeggGeneSets, hyperGeoTest, gseaScores, gseaPlots, collectionGsea, permutationPvalueCollectionGsea)
+importFrom(PANR, fitNULL, fitBM, infer, buildPAN, pvclustModule, view, cosineDist)
+importClassesFrom(RedeR, RedPort)
+importFrom(RedeR, RedPort, addGraph, nestNodes, addLegend.color, addLegend.size, 
+		   mergeOutEdges, relax, calld, ping, resetd)
+importFrom(pvclust, pvclust)
+export(
+	"Mulder2012.pipeline",
+	"Mulder2012.fig",
+	"Mulder2012.PPIPre",
+	"Mulder2012.RNAiPre",
+	"Mulder2012.BMfitting",
+	"Mulder2012.BMfitting.extended",
+	"Mulder2012.InferPAN",
+	"Mulder2012.ModuleSearchByPvclust",
+	"Mulder2012.PPIenrich",
+	"Mulder2012.module.visualize",
+	"GSEARandomWalkFig",
+	"Arora2010.pipeline",
+	"Arora2010.fig",
+	"Arora2010.BMfitting",
+	"Arora2010.InferPAN",
+	"Arora2010.ModuleSearchByPvclust",
+	"Arora2010.hypergeo",
+	"Arora2010.module.visualize",
+	"dist.pvclust4PAN",
+	"parPvclust4PAN"
+)
+
