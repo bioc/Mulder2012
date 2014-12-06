@@ -2,7 +2,7 @@ Package: Mulder2012
 Type: Package
 Title: Predicting functional networks and modules of chromatin factors
         controlling adult stem cell fate from RNA interference screens
-Version: 0.7.0
+Version: 0.7.1
 Date: 2012-05-30
 Author: Xin Wang <Xin.Wang@cancer.org.uk>, Florian Markowetz <Florian.Markowetz@cancer.org.uk>
 Maintainer: Xin Wang <Xin.Wang@cancer.org.uk>
@@ -11,7 +11,7 @@ Imports: igraph, HTSanalyzeR, PANR, RedeR, pvclust, MASS
 Suggests: snow
 Description: This package provides functions to reproduce results and figures in Mulder K. et. al. published in Nature Cell Biology 2012 and Wang X. et. al. published in PLoS Computational Biology 2012.  
 License: Artistic-2.0
-biocViews: Bioinformatics
+biocViews: StemCell, CancerData
 Collate: Mulder2012_fun.R Mulder2012.R Arora2010_fun.R Arora2010.R
 LazyLoad: yes
 Packaged: 2012-05-31 12:37:16 UTC; xin
