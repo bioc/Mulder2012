@@ -2,7 +2,7 @@ Package: Mulder2012
 Type: Package
 Title: Predicting functional networks and modules of chromatin factors
         controlling adult stem cell fate from RNA interference screens
-Version: 0.13.0
+Version: 0.14.0
 Date: 2012-05-30
 Author: Xin Wang <Xin.Wang@cancer.org.uk>, Florian Markowetz <Florian.Markowetz@cancer.org.uk>
 Maintainer: Xin Wang <Xin.Wang@cancer.org.uk>
