@@ -61,8 +61,9 @@ Prior to installation of package \Rpackage{Mulder2012}, R packages \Rpackage{HTS
 These packages can be installed directly from bioconductor:
 
 <<install, eval=FALSE>>=
-source("http://www.bioconductor.org/biocLite.R")
-biocLite(c("PANR", "RedeR", "pvclust", "HTSanalyzeR", 
+if (!requireNamespace("BiocManager", quietly=TRUE))
+    install.packages("BiocManager")
+BiocManager::install(c("PANR", "RedeR", "pvclust", "HTSanalyzeR", 
 "org.Hs.eg.db", "KEGG.db"))
 @ 
 
